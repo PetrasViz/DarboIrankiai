@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>CSV Contact Converter</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 2em;
+      background-color: #f4f4f4;
+    }
+    h1 {
+      color: #333;
+    }
+    input[type="file"] {
+      margin: 1em 0;
+    }
+    button {
+      padding: 0.5em 1em;
+      margin-top: 1em;
+      cursor: pointer;
+    }
+    a#download {
+      display: none;
+      margin-top: 1em;
+      text-decoration: none;
+      background: #4CAF50;
+      color: white;
+      padding: 0.5em 1em;
+      border-radius: 5px;
+    }
+  </style>
+</head>
+<body>
+  <h1>CSV Contact Converter</h1>
+  <input type="file" id="csvInput" accept=".csv" />
+  <br>
+  <button onclick="convertCSV()">Convert</button>
+  <br>
+  <a id="download" href="#" download="converted_contacts.csv">Download Converted CSV</a>
+
+  <script>
+    function convertCSV() {
+      const input = document.getElementById('csvInput');
+      if (!input.files.length) {
+        alert("Please select a CSV file.");
+        return;
+      }
+
+      const file = input.files[0];
+      const reader = new FileReader();
+
+      reader.onload = function (e) {
+        const lines = e.target.result.split(/\r?\n/).filter(line => line.trim());
+        if (lines.length < 2) {
+          alert("File is empty or doesn't have enough data.");
+          return;
+        }
+
+        const outputHeaders = [
+          "First Name", "Middle Name", "Last Name",
+          "Phonetic First Name", "Phonetic Middle Name", "Phonetic Last Name",
+          "Name Prefix", "Name Suffix", "Nickname", "File As",
+          "Organization Name", "Organization Title", "Organization Department",
+          "Birthday", "Notes", "Photo", "Labels",
+          "Phone 1 - Label", "Phone 1 - Value"
+        ];
+
+        let outputRows = [outputHeaders.join(",")];
+
+        for (let i = 1; i < lines.length; i++) {
+          const parts = lines[i].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/); // handles quoted CSV
+          const name = parts[0]?.replace(/^"|"$/g, '') || '';
+          const phone = parts[2]?.trim() || '';
+
+          let row = Array(19).fill('');
+          row[0] = name;          // First Name
+          row[18] = phone;        // Phone 1 - Value
+
+          outputRows.push(row.join(','));
+        }
+
+        const csvContent = outputRows.join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+
+        const downloadLink = document.getElementById('download');
+        downloadLink.href = url;
+        downloadLink.style.display = 'inline-block';
+      };
+
+      reader.readAsText(file);
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Truck ETA Calculator</title>
+  <!-- Bootstrap CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Flatpickr CSS for the custom date/time picker -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+  <style>
+    body {
+      background-color: #f4f4f4;
+    }
+    .calculator {
+      background: #fff;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+      margin-top: 20px;
+    }
+    #result {
+      white-space: pre-line;
+    }
+    /* Floating language button raised to 15% from the top and smaller */
+    .floating-lang-btn {
+      position: fixed;
+      top: 15%;
+      left: 0;
+      z-index: 1050;
+    }
+  </style>
+</head>
+<body>
+
+<!-- Floating Language Selector Button -->
+<button class="btn btn-secondary btn-sm floating-lang-btn" data-bs-toggle="offcanvas" data-bs-target="#offcanvasLanguage" aria-controls="offcanvasLanguage">
+  US
+</button>
+
+<!-- Offcanvas Sidebar for Language Selection -->
+<div class="offcanvas offcanvas-start" tabindex="-1" id="offcanvasLanguage" aria-labelledby="offcanvasLabel">
+  <div class="offcanvas-header">
+    <h5 id="offcanvasLabel">Select Language</h5>
+    <button type="button" class="btn-close text-reset" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+  </div>
+  <div class="offcanvas-body">
+    <select id="languageSelect" class="form-select" onchange="updateLocalization()">
+      <option value="en">English</option>
+      <option value="lt">Lietuvių</option>
+      <option value="ru">Русский</option>
+    </select>
+  </div>
+</div>
+
+<div class="container">
+  <div class="calculator">
+    <h2 id="calcTitle" class="mb-4">Truck ETA Calculator (Interactive Delay Adjustment)</h2>
+    <!-- Responsive Form Inputs -->
+    <div class="row g-3">
+      <div class="col-md-6">
+        <label for="startTime" class="form-label" id="startTimeLabel">Start Time:</label>
+        <input type="text" id="startTime" class="form-control">
+      </div>
+      <div class="col-md-6">
+        <p id="drivingConfigLabel" class="fw-bold">Driving Configuration:</p>
+        <div class="form-check">
+          <input type="radio" class="form-check-input" id="single" name="driverType" value="single" checked>
+          <label for="single" class="form-check-label" id="singleDriverLabel">Single Driver (9h available per segment)</label>
+        </div>
+        <div class="form-check">
+          <input type="radio" class="form-check-input" id="two" name="driverType" value="two">
+          <label for="two" class="form-check-label" id="twoDriversLabel">Two Drivers (18h available per segment)</label>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <label for="customHours" class="form-label" id="customHoursLabel">Custom remaining driving time for first segment (optional):</label>
+        <input type="number" id="customHours" placeholder="e.g., 6" step="0.1" class="form-control">
+      </div>
+      <div class="col-md-6">
+        <label for="distance" class="form-label" id="distanceLabel">Distance to Drive (km):</label>
+        <input type="number" id="distance" step="0.1" class="form-control">
+      </div>
+      <div class="col-md-6">
+        <label for="speed" class="form-label" id="speedLabel">Average Speed (km/h):</label>
+        <input type="number" id="speed" step="0.1" class="form-control">
+      </div>
+      <!-- Refuelings input now has a max value of 10 and clamping logic -->
+      <div class="col-md-6">
+        <label for="refuels" class="form-label" id="refuelsLabel">Number of Refuelings (each 1h delay):</label>
+        <input type="number" id="refuels" min="0" max="10" value="0" class="form-control">
+      </div>
+      <div class="col-md-6">
+        <label for="ferryTime" class="form-label" id="ferryTimeLabel">Total Ferry Time (minutes delay):</label>
+        <input type="number" id="ferryTime" min="0" value="0" class="form-control">
+      </div>
+      <!-- Nine‑hour breaks input now has a max value of 10 and clamping logic -->
+      <div class="col-md-6" id="nineHourBreaksContainer" style="display: none;">
+        <label for="nineHourBreaks" class="form-label">How many 9‑hour breaks does the truck have left this week?</label>
+        <input type="number" id="nineHourBreaks" class="form-control" value="0" min="0" max="10">
+      </div>
+    </div>
+    
+    <!-- Unified Calculate Trip Button -->
+    <div class="mt-4">
+      <button id="calcTripButton" onclick="calculateTripAndDisplay()" class="btn btn-primary">Calculate Trip</button>
+    </div>
+    
+    <!-- Accordion for Extra Delay Adjustments (hidden until first calculation) -->
+    <div class="accordion mt-4" id="extraDelayAccordion" style="display: none;">
+      <div class="accordion-item">
+        <h2 class="accordion-header" id="headingExtraDelays">
+          <button id="extraDelayAccordionButton" class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseExtraDelays" aria-expanded="false" aria-controls="collapseExtraDelays">
+            Extra Delay Adjustments
+          </button>
+        </h2>
+        <div id="collapseExtraDelays" class="accordion-collapse collapse" aria-labelledby="headingExtraDelays" data-bs-parent="#extraDelayAccordion">
+          <div class="accordion-body">
+            <div id="refuelAssignmentsContainer"></div>
+            <div id="ferryAssignmentContainer">
+              <h5 id="ferryDelayAssignmentHeader">Ferry Delay Assignment</h5>
+              <label for="ferrySegment" class="form-label" id="ferrySegmentLabel">Apply Ferry Delay in segment (number):</label>
+              <input type="number" id="ferrySegment" min="1" value="1" class="form-control">
+            </div>
+            <!-- New container for 9‑hour break assignments (only for single driver) -->
+            <div id="breakAssignmentContainer"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Accordion for Trip Breakdown & Results -->
+    <div class="accordion mt-4" id="tripBreakdownAccordion">
+      <div class="accordion-item">
+        <h2 class="accordion-header" id="headingBreakdown">
+          <button id="tripBreakdownAccordionButton" class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseBreakdown" aria-expanded="false" aria-controls="collapseBreakdown">
+            Trip Breakdown & Results
+          </button>
+        </h2>
+        <div id="collapseBreakdown" class="accordion-collapse collapse" aria-labelledby="headingBreakdown" data-bs-parent="#tripBreakdownAccordion">
+          <div class="accordion-body" id="result">
+            <!-- Trip breakdown results will be injected here -->
+          </div>
+        </div>
+      </div>
+    </div>
+    
+  </div>
+</div>
+
+<!-- Bootstrap Bundle JS (includes Popper) -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<!-- Flatpickr JS -->
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script>
+  // Initialize flatpickr on Start Time input with 24h format.
+  flatpickr("#startTime", {
+    enableTime: true,
+    dateFormat: "Y-m-d H:i",
+    time_24hr: true
+  });
+  
+  // Localization dictionaries.
+  var translations = {
+    "en": {
+      "title": "Truck ETA Calculator (Interactive Delay Adjustment)",
+      "drivingConfiguration": "Driving Configuration:",
+      "singleDriver": "Single Driver (9h available per segment)",
+      "twoDrivers": "Two Drivers (18h available per segment)",
+      "customHours": "Custom remaining driving time for first segment (optional):",
+      "distance": "Distance to Drive (km):",
+      "speed": "Average Speed (km/h):",
+      "refuels": "Number of Refuelings (each 1h delay):",
+      "ferryTime": "Total Ferry Time (minutes delay):",
+      "calculateTrip": "Calculate Trip",
+      "extraDelayAdjustments": "Extra Delay Adjustments",
+      "refuelDelayAssignments": "Refuel Delay Assignments",
+      "refuelEvent": "Refuel event ",
+      "segment": " segment: ",
+      "ferryDelayAssignment": "Ferry Delay Assignment",
+      "applyFerryDelayInSegment": "Apply Ferry Delay in segment (number):",
+      "tripBreakdownResults": "Trip Breakdown & Results",
+      "finalEstimatedArrival": "Final Estimated Arrival Time (with delays):",
+      "totalTripDuration": "Total Trip Duration (with delays):",
+      "tripBreakdown": "Trip Breakdown:",
+      "destinationReached": "Destination reached by"
+    },
+    "lt": {
+      "title": "Sunkvežimio atvykimo laiko skaičiuoklė (interaktyvus vėlavimų koregavimas)",
+      "drivingConfiguration": "Vairavimo konfigūracija:",
+      "singleDriver": "Vairuotojas vienas (9 valandos per segmentą)",
+      "twoDrivers": "Dvi vairuotojai (18 valandų per segmentą)",
+      "customHours": "Pirmojo segmento likusis vairavimo laikas (nebūtina):",
+      "distance": "Važiavimo atstumas (km):",
+      "speed": "Vidutinis greitis (km/h):",
+      "refuels": "Užpildo skaičius (kiekvienas – 1 val. vėlavimas):",
+      "ferryTime": "Ferro laikas (min. vėlavimas):",
+      "calculateTrip": "Apskaičiuoti kelionę",
+      "extraDelayAdjustments": "Papildomi vėlavimų nustatymai",
+      "refuelDelayAssignments": "Užpildo vėlavimo priskyrimai",
+      "refuelEvent": "Užpildo įvykis ",
+      "segment": " segmentas: ",
+      "ferryDelayAssignment": "Ferro vėlavimo priskyrimas",
+      "applyFerryDelayInSegment": "Priskirti ferą segmentui (numeris):",
+      "tripBreakdownResults": "Kelionės apžvalga ir rezultatai",
+      "finalEstimatedArrival": "Galutinis numatomas atvykimo laikas (su vėlavimais):",
+      "totalTripDuration": "Bendra kelionės trukmė (su vėlavimais):",
+      "tripBreakdown": "Kelionės apžvalga:",
+      "destinationReached": "Kelionė baigta:"
+    },
+    "ru": {
+      "title": "Калькулятор времени прибытия грузовика (интерактивная корректировка задержек)",
+      "drivingConfiguration": "Конфигурация вождения:",
+      "singleDriver": "Один водитель (9 ч. за сегмент)",
+      "twoDrivers": "Два водителя (18 ч. за сегмент)",
+      "customHours": "Оставшееся время вождения для первого сегмента (необязательно):",
+      "distance": "Расстояние для проезда (км):",
+      "speed": "Средняя скорость (км/ч):",
+      "refuels": "Количество заправок (каждая – задержка 1 ч.):",
+      "ferryTime": "Время парома (задержка в мин.):",
+      "calculateTrip": "Рассчитать поездку",
+      "extraDelayAdjustments": "Настройки дополнительных задержек",
+      "refuelDelayAssignments": "Назначение задержек заправки",
+      "refuelEvent": "Заправка ",
+      "segment": " сегмент: ",
+      "ferryDelayAssignment": "Назначение задержки парома",
+      "applyFerryDelayInSegment": "Назначить задержку парома сегменту (номер):",
+      "tripBreakdownResults": "Разбивка поездки и результаты",
+      "finalEstimatedArrival": "Окончательное предполагаемое время прибытия (с задержками):",
+      "totalTripDuration": "Общая длительность поездки (с задержками):",
+      "tripBreakdown": "Разбивка поездки:",
+      "destinationReached": "Прибытие:"
+    }
+  };
+  
+  var currentLang = "en";
+  
+  function updateLocalization() {
+    currentLang = document.getElementById("languageSelect").value;
+    document.getElementById("calcTitle").innerText = translations[currentLang]["title"];
+    document.getElementById("drivingConfigLabel").innerText = translations[currentLang]["drivingConfiguration"];
+    document.getElementById("singleDriverLabel").innerText = translations[currentLang]["singleDriver"];
+    document.getElementById("twoDriversLabel").innerText = translations[currentLang]["twoDrivers"];
+    document.getElementById("customHoursLabel").innerText = translations[currentLang]["customHours"];
+    document.getElementById("distanceLabel").innerText = translations[currentLang]["distance"];
+    document.getElementById("speedLabel").innerText = translations[currentLang]["speed"];
+    document.getElementById("refuelsLabel").innerText = translations[currentLang]["refuels"];
+    document.getElementById("ferryTimeLabel").innerText = translations[currentLang]["ferryTime"];
+    document.getElementById("calcTripButton").innerText = translations[currentLang]["calculateTrip"];
+    document.getElementById("extraDelayAccordionButton").innerText = translations[currentLang]["extraDelayAdjustments"];
+    document.getElementById("ferryDelayAssignmentHeader").innerText = translations[currentLang]["ferryDelayAssignment"];
+    document.getElementById("ferrySegmentLabel").innerText = translations[currentLang]["applyFerryDelayInSegment"];
+    document.getElementById("tripBreakdownAccordionButton").innerText = translations[currentLang]["tripBreakdownResults"];
+    
+    // Update floating language button text.
+    var langButton = document.querySelector(".floating-lang-btn");
+    if (currentLang === "en") {
+      langButton.textContent = "US";
+    } else if (currentLang === "lt") {
+      langButton.textContent = "LT";
+    } else if (currentLang === "ru") {
+      langButton.textContent = "RU";
+    }
+    
+    // Update driver-type–dependent elements.
+    updateDriverTypeDependentElements();
+    
+    // Regenerate refuel assignment inputs if refuel count is nonzero.
+    if (parseInt(document.getElementById('refuels').value) > 0) {
+      generateRefuelAssignments();
+    }
+  }
+  
+  // Show/hide the nine‑hour breaks input and generate break assignments (if single driver).
+  function updateDriverTypeDependentElements() {
+    var driverType = document.querySelector('input[name="driverType"]:checked').value;
+    var nineHourContainer = document.getElementById('nineHourBreaksContainer');
+    var breakAssignContainer = document.getElementById('breakAssignmentContainer');
+    if (driverType === "single") {
+      nineHourContainer.style.display = "block";
+      generateBreakAssignments();
+    } else {
+      nineHourContainer.style.display = "none";
+      breakAssignContainer.innerHTML = "";
+    }
+  }
+  
+  // Generate checkboxes for each break that will occur based on the trip calculation.
+  // The number of checkboxes equals (number of segments – 1).
+  // Unlike before, all checkboxes are enabled so the user can select any of them;
+  // a separate function (limitBreakSelection) limits the total number selected.
+  function generateBreakAssignments() {
+    var driverType = document.querySelector('input[name="driverType"]:checked').value;
+    var breakContainer = document.getElementById('breakAssignmentContainer');
+    breakContainer.innerHTML = "";
+    if (driverType !== "single") return;
+    
+    let distance = parseFloat(document.getElementById('distance').value);
+    let speed = parseFloat(document.getElementById('speed').value);
+    let availableBreaks = parseInt(document.getElementById('nineHourBreaks').value) || 0;
+    let estimatedBreaks = 0;
+    
+    if (!isNaN(distance) && distance > 0 && !isNaN(speed) && speed > 0) {
+       let baseDrivingTime = distance / speed;
+       let defaultAvailableTime = 9; // for single driver
+       let customTime = parseFloat(document.getElementById('customHours').value);
+       let firstSegmentAvailableTime = (!isNaN(customTime) && customTime > 0 && customTime < defaultAvailableTime) ? customTime : defaultAvailableTime;
+       let segments;
+       if (baseDrivingTime <= firstSegmentAvailableTime) {
+           segments = 1;
+       } else {
+           segments = 1 + Math.ceil((baseDrivingTime - firstSegmentAvailableTime) / defaultAvailableTime);
+       }
+       estimatedBreaks = segments - 1;
+    } else {
+       // Fallback if distance or speed not provided.
+       estimatedBreaks = availableBreaks;
+    }
+    
+    if (estimatedBreaks > 0) {
+       breakContainer.innerHTML += "<h5>9‑hour Break Assignments</h5>";
+       for (var i = 1; i <= estimatedBreaks; i++) {
+         breakContainer.innerHTML += '<div class="form-check">' +
+              '<input class="form-check-input breakAssignment" type="checkbox" id="breakAssign' + i + '">' +
+              '<label class="form-check-label" for="breakAssign' + i + '">Break ' + i + ': Use 9‑hour break</label>' +
+              '</div>';
+       }
+       // Attach event listeners to all break checkboxes
+       let checkboxes = document.querySelectorAll('.breakAssignment');
+       checkboxes.forEach(function(chk) {
+          chk.addEventListener('change', limitBreakSelection);
+       });
+       // Enforce the max selection limit immediately
+       limitBreakSelection();
+    }
+  }
+  
+  // Limit the maximum number of break checkboxes that can be checked.
+  function limitBreakSelection() {
+    let availableBreaks = parseInt(document.getElementById('nineHourBreaks').value) || 0;
+    let checkboxes = document.querySelectorAll('.breakAssignment');
+    // If no breaks are available, uncheck and disable all checkboxes.
+    if (availableBreaks <= 0) {
+      checkboxes.forEach(function(chk) {
+         chk.checked = false;
+         chk.disabled = true;
+      });
+      return;
+    }
+    let checkedCount = 0;
+    checkboxes.forEach(function(chk) {
+      if (chk.checked) checkedCount++;
+    });
+    checkboxes.forEach(function(chk) {
+      if (!chk.checked) {
+         // When max selections reached, disable further unchecked boxes.
+         chk.disabled = (checkedCount >= availableBreaks);
+      } else {
+         // Allow already checked boxes to be unchecked.
+         chk.disabled = false;
+      }
+    });
+  }
+  
+  // Returns break duration for a given break occurrence.
+  // For single driver, if the corresponding checkbox is checked, return 9; otherwise 11.
+  function getBreakDuration(breakIndex) {
+    var driverType = document.querySelector('input[name="driverType"]:checked').value;
+    if (driverType === "single") {
+      var checkbox = document.getElementById('breakAssign' + breakIndex);
+      if (checkbox && checkbox.checked) {
+        return 9;
+      } else {
+        return 11;
+      }
+    } else {
+      return 9; // For two drivers.
+    }
+  }
+  
+  // Attach event listeners.
+  window.onload = function() {
+    updateLocalization();
+    updateFerryAssignmentVisibility();
+  };
+  
+  // Update ferry assignment visibility when ferryTime changes.
+  document.getElementById('ferryTime').addEventListener('input', updateFerryAssignmentVisibility);
+  
+  // Update break assignments when the number of available 9‑hour breaks changes.
+  document.getElementById('nineHourBreaks').addEventListener('input', generateBreakAssignments);
+  
+  // Update break assignments when driver type changes.
+  document.querySelectorAll('input[name="driverType"]').forEach(function(radio) {
+    radio.addEventListener('change', updateDriverTypeDependentElements);
+  });
+  
+  // Also update break assignments when distance, speed, or customHours change.
+  document.getElementById('distance').addEventListener('input', generateBreakAssignments);
+  document.getElementById('speed').addEventListener('input', generateBreakAssignments);
+  document.getElementById('customHours').addEventListener('input', generateBreakAssignments);
+  
+  // Clamp refuelings value to a maximum of 10.
+  document.getElementById('refuels').addEventListener('input', function() {
+    let value = parseInt(this.value) || 0;
+    if (value > 10) {
+      this.value = 10;
+    }
+  });
+  
+  // Clamp nine‑hour breaks value to a maximum of 10.
+  document.getElementById('nineHourBreaks').addEventListener('input', function() {
+    let value = parseInt(this.value) || 0;
+    if (value > 10) {
+      this.value = 10;
+    }
+  });
+  
+  // Show/hide the Ferry Assignment container based on ferry time value.
+  function updateFerryAssignmentVisibility() {
+    var ferryTimeValue = parseFloat(document.getElementById('ferryTime').value) || 0;
+    var ferryContainer = document.getElementById('ferryAssignmentContainer');
+    if (ferryTimeValue > 0) {
+      ferryContainer.style.display = "block";
+    } else {
+      ferryContainer.style.display = "none";
+    }
+  }
+  
+  function formatTime(date) {
+    let hours = date.getHours();
+    let minutes = date.getMinutes();
+    hours = hours < 10 ? '0' + hours : hours;
+    minutes = minutes < 10 ? '0' + minutes : minutes;
+    return hours + ':' + minutes;
+  }
+  
+  function formatDateTime(date) {
+    let year = date.getFullYear();
+    let month = date.getMonth() + 1;
+    let day = date.getDate();
+    month = month < 10 ? '0' + month : month;
+    day = day < 10 ? '0' + day : day;
+    return year + '-' + month + '-' + day + ' ' + formatTime(date);
+  }
+  
+  function formatDecimalHour(decimalHours) {
+    let hours = Math.floor(decimalHours);
+    let minutes = Math.round((decimalHours - hours) * 60);
+    if (minutes < 10) minutes = "0" + minutes;
+    return hours + "." + minutes;
+  }
+  
+  document.getElementById('refuels').addEventListener('input', generateRefuelAssignments);
+  
+  function generateRefuelAssignments() {
+    let refuelCount = parseInt(document.getElementById('refuels').value) || 0;
+    let container = document.getElementById('refuelAssignmentsContainer');
+    container.innerHTML = "";
+    if (refuelCount > 0) {
+      container.innerHTML += "<h5>" + translations[currentLang]["refuelDelayAssignments"] + "</h5>";
+      for (let i = 0; i < refuelCount; i++) {
+        container.innerHTML += translations[currentLang]["refuelEvent"] + (i + 1) + translations[currentLang]["segment"] + " <input type='number' class='refuelAssignment form-control' min='1' value='1'><br>";
+      }
+    } else {
+      container.innerHTML = "<p>No refuel delays specified.</p>";
+    }
+  }
+  
+  // Modified calculateTripWithDelays with dynamic break durations.
+  function calculateTripWithDelays(baseTime, defaultAvailableTime, firstSegmentAvailableTime, driverType, speed, startTime, refuelEvents, ferryEvent) {
+    let breakdown = [];
+    let segments = [];
+    let currentTime = new Date(startTime.getTime());
+    let remainingDrivingTime = baseTime;
+    let segmentIndex = 0;
+    let breakCounter = 0;
+    let cumulativeDistance = 0;
+    let totalDistance = baseTime * speed;
+    
+    while (remainingDrivingTime > 0) {
+      segmentIndex++;
+      let segmentAvailable = (segmentIndex === 1 ? firstSegmentAvailableTime : defaultAvailableTime);
+      
+      // Extra delays for refuels and ferry.
+      let segmentRefuelDelay = 0;
+      let refuelDetails = [];
+      if (refuelEvents && refuelEvents.length > 0) {
+        refuelEvents.forEach(event => {
+          if (event.segment === segmentIndex) {
+            segmentRefuelDelay += event.delay;
+            refuelDetails.push("refuel delay: " + event.delay.toFixed(2) + "h");
+          }
+        });
+      }
+      let segmentFerryDelay = 0;
+      let ferryDetails = "";
+      if (ferryEvent && ferryEvent.delay > 0 && ferryEvent.segment === segmentIndex) {
+        segmentFerryDelay = ferryEvent.delay;
+        ferryDetails = "ferry delay: " + ferryEvent.delay.toFixed(2) + "h";
+      }
+      let extraDelay = segmentRefuelDelay + segmentFerryDelay;
+      let extraDelayText = "";
+      if (extraDelay > 0) {
+        let details = [];
+        if (refuelDetails.length > 0) details.push(refuelDetails.join(", "));
+        if (ferryDetails) details.push(ferryDetails);
+        extraDelayText = " (" + "Extra (" + details.join(", ") + ") applied" + ")";
+      }
+      
+      let inShiftBreak = 0;
+      let driveDetails = "";
+      let segmentDrive = 0;
+      
+      if (driverType === "single") {
+        segmentDrive = Math.min(segmentAvailable, remainingDrivingTime);
+        if (segmentDrive > 4.5) {
+          inShiftBreak = 0.75;
+          driveDetails = "Drive " + formatDecimalHour(4.5) + "h, stop for 45 minute break and drive " +
+                         formatDecimalHour(segmentDrive - 4.5) + "h";
+        } else {
+          driveDetails = "Drive " + formatDecimalHour(segmentDrive) + "h";
+        }
+      } else {
+        let effectiveAvailable = segmentAvailable - extraDelay;
+        segmentDrive = Math.min(effectiveAvailable, remainingDrivingTime);
+        driveDetails = "Drive " + segmentDrive.toFixed(2) + "h";
+      }
+      
+      remainingDrivingTime -= segmentDrive;
+      let segmentElapsed = segmentDrive + inShiftBreak + extraDelay;
+      let distanceCovered = segmentDrive * speed;
+      cumulativeDistance += distanceCovered;
+      let segmentStartTime = new Date(currentTime.getTime());
+      let segmentEndTime = new Date(currentTime.getTime() + segmentElapsed * 3600000);
+      
+      let segmentMessage = "Segment " + segmentIndex + ":\n" +
+                           "Start at " + formatTime(segmentStartTime) + ".\n" +
+                           driveDetails + ", covering " + distanceCovered.toFixed(2) + " km\n";
+      if (extraDelay > 0) {
+        segmentMessage += "(" + extraDelayText.trim() + ")\n";
+      }
+      segmentMessage += "(Total distance covered: " + cumulativeDistance.toFixed(2) + " km out of " + totalDistance.toFixed(2) + " km).\n" +
+                        (remainingDrivingTime > 0 ? "End work at " + formatTime(segmentEndTime) + "." : "End at " + formatTime(segmentEndTime) + ".");
+      breakdown.push(segmentMessage);
+      
+      segments.push({
+        segmentIndex: segmentIndex,
+        startTime: new Date(segmentStartTime.getTime()),
+        driveTime: segmentDrive,
+        delay: extraDelay,
+        inShiftBreak: inShiftBreak,
+        endTime: new Date(segmentEndTime.getTime())
+      });
+      
+      currentTime = new Date(segmentEndTime.getTime());
+      if (remainingDrivingTime > 0) {
+        breakCounter++;
+        let breakDuration = (driverType === "single") ? getBreakDuration(breakCounter) : 9;
+        let restStart = new Date(currentTime.getTime());
+        let restEnd = new Date(currentTime.getTime() + breakDuration * 3600000);
+        let breakMessage = "Break: From " + formatTime(restStart) + " to " + formatTime(restEnd) + " (" + breakDuration + "h rest).";
+        breakdown.push(breakMessage);
+        currentTime = new Date(restEnd.getTime());
+      }
+    }
+    
+    return { breakdown: breakdown, finalTime: new Date(currentTime.getTime()) };
+  }
+  
+  function calculateTripAndDisplay() {
+    let startTimeStr = document.getElementById('startTime').value;
+    if (!startTimeStr) {
+      alert("Please select a start time.");
+      return;
+    }
+    let startTime = new Date(startTimeStr);
+    
+    let driverType = document.querySelector('input[name="driverType"]:checked').value;
+    let defaultAvailableTime = (driverType === "single" ? 9 : 18);
+    let customTime = parseFloat(document.getElementById('customHours').value);
+    let firstSegmentAvailableTime = (!isNaN(customTime) && customTime > 0 && customTime < defaultAvailableTime) ? customTime : defaultAvailableTime;
+    
+    let distance = parseFloat(document.getElementById('distance').value);
+    let speed = parseFloat(document.getElementById('speed').value);
+    if (isNaN(distance) || distance <= 0 || isNaN(speed) || speed <= 0) {
+      alert("Please enter valid values for distance and speed.");
+      return;
+    }
+    
+    let baseDrivingTime = distance / speed;
+    
+    let refuelEvents = [];
+    let refuelCount = parseInt(document.getElementById('refuels').value) || 0;
+    if (refuelCount > 0) {
+      let refuelInputs = document.querySelectorAll('.refuelAssignment');
+      refuelInputs.forEach(function(input) {
+        let seg = parseInt(input.value);
+        if (!seg || seg < 1) seg = 1;
+        refuelEvents.push({ segment: seg, delay: 1.0 });
+      });
+    }
+    
+    let ferryTimeMinutes = parseFloat(document.getElementById('ferryTime').value) || 0;
+    let ferryDelay = ferryTimeMinutes / 60;
+    let ferrySegment = 1;
+    if (ferryDelay > 0) {
+      ferrySegment = parseInt(document.getElementById('ferrySegment').value);
+      if (!ferrySegment || ferrySegment < 1) ferrySegment = 1;
+    }
+    let ferryEvent = { segment: ferrySegment, delay: ferryDelay };
+    
+    let newTripData = calculateTripWithDelays(baseDrivingTime, defaultAvailableTime, firstSegmentAvailableTime, driverType, speed, startTime, refuelEvents, ferryEvent);
+    let totalTripHours = (newTripData.finalTime - startTime) / 3600000;
+    
+    let resultHtml = "<strong>" + translations[currentLang]["finalEstimatedArrival"] + "</strong> " + formatDateTime(newTripData.finalTime) +
+                     "\n<strong>" + translations[currentLang]["totalTripDuration"] + "</strong> " + totalTripHours.toFixed(2) + "h" +
+                     "\n\n<strong>" + translations[currentLang]["tripBreakdown"] + "</strong>\n<div class='breakdown'>";
+    newTripData.breakdown.forEach(function(step) {
+      resultHtml += step + "\n\n";
+    });
+    resultHtml += translations[currentLang]["destinationReached"] + " " + formatDateTime(newTripData.finalTime) + "</div>";
+    
+    document.getElementById("result").innerHTML = resultHtml;
+    
+    // Reveal the Extra Delay Adjustments section after first calculation.
+    document.getElementById("extraDelayAccordion").style.display = "block";
+    
+    // Automatically expand the Trip Breakdown accordion.
+    var collapseElement = document.getElementById('collapseBreakdown');
+    var bsCollapse = bootstrap.Collapse.getInstance(collapseElement);
+    if (!bsCollapse) {
+      bsCollapse = new bootstrap.Collapse(collapseElement, {toggle: false});
+    }
+    bsCollapse.show();
+  }
+</script>
+</body>
+</html>
