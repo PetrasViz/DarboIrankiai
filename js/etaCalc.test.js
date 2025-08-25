@@ -80,3 +80,22 @@ test('calculateTrip counts qualifying ferry time toward daily rest', () => {
   assert.strictEqual(result.rests[0].end.toISOString(), '2023-01-01T20:45:00.000Z');
 });
 
+test('calculateTrip attaches delay notes to segments', () => {
+  const start = new Date('2023-01-01T00:00:00Z');
+  const result = calculateTrip({
+    baseTime: 5,
+    defaultAvailableTime: 9,
+    firstSegmentAvailableTime: 9,
+    driverType: 'single',
+    speed: 80,
+    startTime: start,
+    refuelEvents: [{ segment: 1, delay: 1 }],
+    ferryEvent: { segment: 1, delay: 7 },
+    settings: { delayMode: 'auto', autoFerryRest: true, autoFerryRestThreshold: 6 }
+  });
+  const notes = result.segments[0].delayNotes;
+  assert.ok(Array.isArray(notes));
+  assert.ok(notes.includes('refuel 1.00h'));
+  assert.ok(notes.includes('ferry 7.00h'));
+});
+

@@ -95,7 +95,7 @@ function calculateTrip(params) {
     segmentIndex++;
     const segmentAvail = segmentIndex === 1 ? firstSegmentAvailableTime : defaultAvailableTime;
 
-    const { extraDelay, ferryAsRest, ferryDelay } = getSegmentDelays(segmentIndex, refuelEvents, ferryEvent, mergedSettings);
+    const { extraDelay, delayNotes, ferryAsRest, ferryDelay } = getSegmentDelays(segmentIndex, refuelEvents, ferryEvent, mergedSettings);
 
     let plannedDrive = Math.min(segmentAvail, remainingDrive);
     let inShiftBreak = (state.isSingle && plannedDrive > 4.5) ? 0.75 : 0;
@@ -141,7 +141,8 @@ function calculateTrip(params) {
         driveTime: 0,
         delayOnDuty: countedDelay,
         delayOffDuty: offDutyDelay,
-        inShiftBreak
+        inShiftBreak,
+        delayNotes
       });
 
       if (remainingDrive > 0 && ferryAsRest) {
@@ -170,7 +171,8 @@ function calculateTrip(params) {
       driveTime: plannedDrive,
       delayOnDuty: countedDelay,
       delayOffDuty: offDutyDelay,
-      inShiftBreak
+      inShiftBreak,
+      delayNotes
     });
 
     if (remainingDrive > 0 && ferryAsRest) {
