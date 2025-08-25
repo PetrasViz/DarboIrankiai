@@ -8,6 +8,7 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <!-- Flatpickr CSS -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <style>
     body { background-color: #f4f4f4; }
     .calculator {
@@ -22,10 +23,28 @@
       display:inline-block; width:10px; height:10px; border-radius:50%;
       margin-right:6px; background:#0d6efd;
     }
+    nav { background:#fff; box-shadow:0 0 5px rgba(0,0,0,0.1); }
+    .app-section { display:none; }
+    #contactsSection { font-family: Arial, sans-serif; margin: 2em; }
+    #contactsSection h1 { color:#333; }
+    #contactsSection input[type="file"] { margin: 1em 0; }
+    #contactsSection button { padding: 0.5em 1em; margin-top: 1em; cursor: pointer; }
+    #contactsSection #download { display: none; margin-top: 1em; text-decoration: none; background: #4CAF50; color: white; padding: 0.5em 1em; border-radius: 5px; }
   </style>
 </head>
 <body>
+<nav class="navbar navbar-expand-lg navbar-light bg-light">
+  <div class="container-fluid">
+    <a class="navbar-brand" href="#" onclick="showSection('etaSection')">Truck Tools</a>
+    <div class="navbar-nav">
+      <a class="nav-link" href="#" onclick="showSection('etaSection')">ETA Calc</a>
+      <a class="nav-link" href="#" onclick="showSection('contactsSection')">Contacts Converter</a>
+      <a class="nav-link" href="#" onclick="showSection('kmSection')">Week Data</a>
+    </div>
+  </div>
+</nav>
 
+<section id="etaSection" class="app-section">
 <!-- Floating Language Selector Button -->
 <button class="btn btn-secondary btn-sm floating-lang-btn" data-bs-toggle="offcanvas" data-bs-target="#offcanvasLanguage" aria-controls="offcanvasLanguage">
   US
@@ -164,6 +183,24 @@
 
   </div>
 </div>
+</section>
+
+<section id="contactsSection" class="app-section">
+  <h1>CSV Contact Converter</h1>
+  <input type="file" id="csvInput" accept=".csv" />
+  <br>
+  <button onclick="convertCSV()">Convert</button>
+  <br>
+  <a id="download" href="#" download="converted_contacts.csv">Download Converted CSV</a>
+</section>
+
+<section id="kmSection" class="app-section">
+  <div class="container mt-4">
+    <h2>Upload Your data (57).xlsx</h2>
+    <input type="file" id="inputFile" accept=".xlsx, .xls">
+    <button onclick="processFile()" class="btn btn-primary ms-2">Process File</button>
+  </div>
+</section>
 
 <!-- Bootstrap Bundle -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
@@ -679,6 +716,222 @@
     if (!bsCollapse) { bsCollapse = new bootstrap.Collapse(collapseElement, {toggle: false}); }
     bsCollapse.show();
   }
+</script>
+
+<script>
+function convertCSV() {
+  const input = document.getElementById('csvInput');
+  if (!input || !input.files.length) {
+    alert("Please select a CSV file.");
+    return;
+  }
+  const file = input.files[0];
+  const reader = new FileReader();
+  reader.onload = function (e) {
+    const lines = e.target.result.split(/\r?\n/).filter(line => line.trim());
+    if (lines.length < 2) {
+      alert("File is empty or doesn't have enough data.");
+      return;
+    }
+    const outputHeaders = [
+      "First Name", "Middle Name", "Last Name",
+      "Phonetic First Name", "Phonetic Middle Name", "Phonetic Last Name",
+      "Name Prefix", "Name Suffix", "Nickname", "File As",
+      "Organization Name", "Organization Title", "Organization Department",
+      "Birthday", "Notes", "Photo", "Labels",
+      "Phone 1 - Label", "Phone 1 - Value"
+    ];
+    let outputRows = [outputHeaders.join(",")];
+    for (let i = 1; i < lines.length; i++) {
+      const parts = lines[i].split(/,(?=(?:(?:[^\"]*\"){2})[^\"]*$)/);
+      const name = parts[0]?.replace(/^\"|\"$/g, '') || '';
+      const phone = parts[2]?.trim() || '';
+      let row = Array(19).fill('');
+      row[0] = name;
+      row[18] = phone;
+      outputRows.push(row.join(','));
+    }
+    const csvContent = outputRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const downloadLink = document.getElementById('download');
+    downloadLink.href = url;
+    downloadLink.style.display = 'inline-block';
+  };
+  reader.readAsText(file);
+}
+</script>
+
+<script>
+function parseTruckTrailer(str) {
+  str = str.replace(/\[BW\/[A-Z]\]/gi, "").trim();
+  let drivers = 2;
+  if (/1v/i.test(str)) drivers = 1;
+  let [left, right = ""] = str.split("/", 2);
+  left = left.trim();
+  right = right.trim();
+  const truckMatch = left.match(/[A-Z0-9]+/i);
+  const trailerMatch = right.match(/[A-Z0-9]+/i);
+  const truck = truckMatch ? truckMatch[0] : left;
+  const trailer = trailerMatch ? trailerMatch[0] : right;
+  return { truck, trailer, drivers };
+}
+function parseCommaFloat(val) {
+  if (!val || val.toString().trim() === "") return null;
+  const num = parseFloat(val.toString().replace(",", "."));
+  return isNaN(num) ? null : num;
+}
+function mergeByTruck(rows) {
+  const byTruck = {};
+  for (let r of rows) {
+    const truck = r.Truck;
+    if (!byTruck[truck]) {
+      byTruck[truck] = r;
+    } else {
+      const existing = byTruck[truck];
+      const newHasW7 = r["Week 7"] != null;
+      const oldHasW7 = existing["Week 7"] != null;
+      if (newHasW7 && !oldHasW7) {
+        if (r["Week 6"] == null && existing["Week 6"] != null) {
+          r["Week 6"] = existing["Week 6"];
+        }
+        byTruck[truck] = r;
+      } else if (oldHasW7 && !newHasW7) {
+        if (existing["Week 6"] == null && r["Week 6"] != null) {
+          existing["Week 6"] = r["Week 6"];
+        }
+      } else if (oldHasW7 && newHasW7) {
+        if (r["Week 6"] == null && existing["Week 6"] != null) {
+          r["Week 6"] = existing["Week 6"];
+        }
+        byTruck[truck] = r;
+      } else {
+        if (existing["Week 6"] == null && r["Week 6"] != null) {
+          existing["Week 6"] = r["Week 6"];
+        }
+      }
+    }
+  }
+  return Object.values(byTruck);
+}
+function transformData(dataAoA) {
+  const rows = [];
+  for (let i = 2; i < dataAoA.length; i++) {
+    const row = dataAoA[i];
+    if (!row || !row.length) break;
+    if (!row[0] || /^total$/i.test(row[0].toString().trim())) {
+      break;
+    }
+    const rawTruckTrailer = row[0].toString().trim();
+    const week6Val = parseCommaFloat(row[1]);
+    const week7Val = parseCommaFloat(row[2]);
+    const { truck, trailer, drivers } = parseTruckTrailer(rawTruckTrailer);
+    rows.push({
+      Truck: truck,
+      Trailer: trailer,
+      "Week 6": week6Val,
+      "Week 7": week7Val,
+      Drivers: drivers
+    });
+  }
+  const merged = mergeByTruck(rows);
+  let sum6 = 0, sum7 = 0;
+  let count6 = 0, count7 = 0;
+  merged.forEach(r => {
+    if (r["Week 6"] != null) { sum6 += r["Week 6"]; count6++; }
+    if (r["Week 7"] != null) { sum7 += r["Week 7"]; count7++; }
+  });
+  const avg6 = count6 > 0 ? Math.round(sum6 / count6) : "";
+  const avg7 = count7 > 0 ? Math.round(sum7 / count7) : "";
+  const total6 = count6 > 0 ? Math.round(sum6) : "";
+  const total7 = count7 > 0 ? Math.round(sum7) : "";
+  merged.push({
+    Truck: "",
+    Trailer: "Total Average:",
+    "Week 6": avg6,
+    "Week 7": avg7,
+    Drivers: ""
+  });
+  merged.push({
+    Truck: "",
+    Trailer: "Total Amount:",
+    "Week 6": total6,
+    "Week 7": total7,
+    Drivers: ""
+  });
+  return merged;
+}
+function createStyledSheet(data) {
+  const aoa = [["Truck", "Trailer", "Week 6", "Week 7", "Drivers"]];
+  data.forEach(row => {
+    aoa.push([
+      row.Truck,
+      row.Trailer,
+      row["Week 6"] == null ? "" : row["Week 6"],
+      row["Week 7"] == null ? "" : row["Week 7"],
+      row.Drivers == null ? "" : row.Drivers
+    ]);
+  });
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [
+    { wch: 10 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 8 }
+  ];
+  const headerCells = ["A1", "B1", "C1", "D1", "E1"];
+  headerCells.forEach(cellAddr => {
+    if (ws[cellAddr]) {
+      ws[cellAddr].s = {
+        font: { bold: true },
+        fill: { fgColor: { rgb: "D9D9D9" } },
+        alignment: { horizontal: "center" }
+      };
+    }
+  });
+  const totalAvgRowIndex = aoa.length - 2;
+  const totalAmtRowIndex = aoa.length - 1;
+  [totalAvgRowIndex, totalAmtRowIndex].forEach(rowIndex => {
+    for (let col = 0; col < 5; col++) {
+      const addr = XLSX.utils.encode_cell({ r: rowIndex, c: col });
+      if (!ws[addr]) continue;
+      ws[addr].s = ws[addr].s || {};
+      ws[addr].s.font = ws[addr].s.font || {};
+      ws[addr].s.font.bold = true;
+    }
+  });
+  return ws;
+}
+function processFile() {
+  const fileInput = document.getElementById('inputFile');
+  if (!fileInput.files.length) {
+    alert("Please select an Excel file.");
+    return;
+  }
+  const file = fileInput.files[0];
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const dataArray = new Uint8Array(e.target.result);
+    const workbook = XLSX.read(dataArray, { type: 'array' });
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    const dataAoA = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
+    const finalData = transformData(dataAoA);
+    const newWorksheet = createStyledSheet(finalData);
+    const newWorkbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(newWorkbook, newWorksheet, "Cleaned Data");
+    XLSX.writeFile(newWorkbook, "cleaned_data.xlsx");
+  };
+  reader.readAsArrayBuffer(file);
+}
+</script>
+
+<script>
+function showSection(id) {
+  document.querySelectorAll('.app-section').forEach(sec => sec.style.display = 'none');
+  const el = document.getElementById(id);
+  if (el) el.style.display = 'block';
+}
+document.addEventListener('DOMContentLoaded', function() {
+  showSection('etaSection');
+});
 </script>
 </body>
 </html>
