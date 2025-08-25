@@ -58,3 +58,25 @@ test('calculateTrip respects duty cycle and schedules rests', () => {
   }
 });
 
+test('calculateTrip counts qualifying ferry time toward daily rest', () => {
+  const start = new Date('2023-01-01T00:00:00Z');
+  const result = calculateTrip({
+    baseTime: 10,
+    defaultAvailableTime: 9,
+    firstSegmentAvailableTime: 9,
+    driverType: 'single',
+    speed: 80,
+    startTime: start,
+    refuelEvents: [],
+    ferryEvent: { segment: 1, delay: 7 },
+    settings: { delayMode: 'auto', autoFerryRest: true, autoFerryRestThreshold: 6 }
+  });
+
+  assert.strictEqual(result.segments.length, 2);
+  assert.strictEqual(result.segments[0].delayOnDuty, 0);
+  assert.strictEqual(result.rests.length, 1);
+  assert.strictEqual(result.rests[0].duration, 11);
+  assert.strictEqual(result.rests[0].start.toISOString(), '2023-01-01T09:45:00.000Z');
+  assert.strictEqual(result.rests[0].end.toISOString(), '2023-01-01T20:45:00.000Z');
+});
+
