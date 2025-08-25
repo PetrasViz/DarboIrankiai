@@ -170,16 +170,31 @@
 <!-- Flatpickr -->
 <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 <script>
-  // ====== SETTINGS (v1.1) ======
-  const SETTINGS = {
-    dutyCapHours: { single: 15, two: 21 },   // daily spread caps
-    delayMode: "auto",                       // off-duty by default; pull in as needed
-    autoFerryRest: true,                     // default ON (toggle in UI)
-    autoFerryRestThreshold: 6,               // hours
-    preferReducedRestFirst: true             // prefer 9h before 11h
-  };
-  // Weekly counter for 9h reduced daily rests (reset with button)
-  let WEEKLY_9H_RESTS_USED = 0;
+  // ====== APP STATE (v1.1) ======
+  class AppState {
+    constructor() {
+      this.settings = {
+        dutyCapHours: { single: 15, two: 21 },   // daily spread caps
+        delayMode: "auto",                       // off-duty by default; pull in as needed
+        autoFerryRest: true,                     // default ON (toggle in UI)
+        autoFerryRestThreshold: 6,               // hours
+        preferReducedRestFirst: true             // prefer 9h before 11h
+      };
+      this.weeklyCounters = {
+        reducedRestsUsed: 0                      // Weekly counter for 9h reduced daily rests
+      };
+    }
+
+    incrementReducedRest() {
+      this.weeklyCounters.reducedRestsUsed++;
+      return this.weeklyCounters.reducedRestsUsed;
+    }
+
+    resetWeeklyCounters() {
+      this.weeklyCounters.reducedRestsUsed = 0;
+    }
+  }
+  const APP_STATE = new AppState();
 
   // ====== I18N ======
   var translations = {
@@ -309,7 +324,7 @@
     document.getElementById("autoFerryRestLabel").innerText = t["autoFerryRestLabel"];
     document.getElementById("dutyRuleNote").innerText = t["dutyRuleNote"];
     document.getElementById("reducedRestsInfo").innerHTML =
-      `${t["reducedInfo"]} <strong id="reducedCount">${WEEKLY_9H_RESTS_USED}</strong>/2`;
+      `${t["reducedInfo"]} <strong id="reducedCount">${APP_STATE.weeklyCounters.reducedRestsUsed}</strong>/2`;
 
     // Floating button text
     var langButton = document.querySelector(".floating-lang-btn");
@@ -323,8 +338,8 @@
   window.onload = function() {
     updateLocalization();
     updateFerryAssignmentVisibility();
-    document.getElementById('reducedCount').innerText = WEEKLY_9H_RESTS_USED;
-    document.getElementById('autoFerryRestToggle').checked = SETTINGS.autoFerryRest;
+    document.getElementById('reducedCount').innerText = APP_STATE.weeklyCounters.reducedRestsUsed;
+    document.getElementById('autoFerryRestToggle').checked = APP_STATE.settings.autoFerryRest;
   };
 
   document.getElementById('ferryTime').addEventListener('input', updateFerryAssignmentVisibility);
@@ -342,13 +357,13 @@
   document.getElementById('customHours').addEventListener('input', ()=>{});
 
   document.getElementById('resetWeekBtn').addEventListener('click', () => {
-    WEEKLY_9H_RESTS_USED = 0;
-    document.getElementById('reducedCount').innerText = WEEKLY_9H_RESTS_USED;
+    APP_STATE.resetWeeklyCounters();
+    document.getElementById('reducedCount').innerText = APP_STATE.weeklyCounters.reducedRestsUsed;
     updateLocalization();
   });
 
   document.getElementById('autoFerryRestToggle').addEventListener('change', (e) => {
-    SETTINGS.autoFerryRest = e.target.checked;
+    APP_STATE.settings.autoFerryRest = e.target.checked;
   });
 
   // ====== UI HELPERS ======
@@ -381,6 +396,7 @@
 
   // ====== CORE CALC (v1.1) ======
   function calculateTripWithDelays(
+    appState,
     baseTime,                    // hours to drive (distance / speed)
     defaultAvailableTime,        // 9 or 18
     firstSegmentAvailableTime,
@@ -394,7 +410,7 @@
     const segments = [];
 
     const isSingle = (driverType === "single");
-    const dutyCap = isSingle ? SETTINGS.dutyCapHours.single : SETTINGS.dutyCapHours.two;
+    const dutyCap = isSingle ? appState.settings.dutyCapHours.single : appState.settings.dutyCapHours.two;
 
     let currentTime = new Date(startTime.getTime());
     let remainingDrive = baseTime;
@@ -407,11 +423,11 @@
     let warnings = [];
 
     function pickDailyRest() {
-      if (isSingle && SETTINGS.preferReducedRestFirst && WEEKLY_9H_RESTS_USED < 2) {
-        WEEKLY_9H_RESTS_USED++;
+      if (isSingle && appState.settings.preferReducedRestFirst && appState.weeklyCounters.reducedRestsUsed < 2) {
+        appState.incrementReducedRest();
         const reducedEl = document.getElementById('reducedCount');
-        if (reducedEl) reducedEl.innerText = WEEKLY_9H_RESTS_USED;
-        if (WEEKLY_9H_RESTS_USED > 2) {
+        if (reducedEl) reducedEl.innerText = appState.weeklyCounters.reducedRestsUsed;
+        if (appState.weeklyCounters.reducedRestsUsed > 2) {
           warnings.push("More than two 9h reduced daily rests used this week.");
         }
         return 9;
@@ -437,7 +453,7 @@
       if (ferryEvent && ferryEvent.delay > 0 && ferryEvent.segment === segIdx) {
         ferryDelay = ferryEvent.delay;
         ferryNote = `ferry ${ferryDelay.toFixed(2)}h`;
-        if (SETTINGS.autoFerryRest && ferryDelay >= SETTINGS.autoFerryRestThreshold) {
+        if (appState.settings.autoFerryRest && ferryDelay >= appState.settings.autoFerryRestThreshold) {
           ferryAsRest = true;
         }
       }
@@ -461,7 +477,7 @@
       let countedDelay = extraDelay;
       let offDutyDelay = 0;
 
-      if (SETTINGS.delayMode === "auto" && !ferryAsRest) {
+      if (appState.settings.delayMode === "auto" && !ferryAsRest) {
         countedDelay = 0; // try keeping all delay off-duty
         let wouldBe = dutyUsed + plannedDrive + inShiftBreak;
         if (wouldBe > dutyCap) {
@@ -609,7 +625,7 @@
     let baseDrivingTime = distance / speed;
 
     // read UI options
-    SETTINGS.autoFerryRest = document.getElementById('autoFerryRestToggle').checked;
+    APP_STATE.settings.autoFerryRest = document.getElementById('autoFerryRestToggle').checked;
 
     // build refuel events
     let refuelEvents = [];
@@ -635,6 +651,7 @@
 
     // run calc
     let out = calculateTripWithDelays(
+      APP_STATE,
       baseDrivingTime,
       defaultAvailableTime,
       firstSegmentAvailableTime,
