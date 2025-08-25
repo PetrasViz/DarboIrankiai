@@ -38,8 +38,18 @@ function scheduleRest(state, pickDailyRest, type) {
   state.rests.push({ type, start, end: new Date(state.currentTime), duration: len });
 }
 
-function applyFerryRest(state, pickDailyRest) {
-  scheduleRest(state, pickDailyRest, 'ferry');
+function applyFerryRest(state, pickDailyRest, ferryDelay = 0) {
+  const required = pickDailyRest();
+  const start = new Date(state.currentTime);
+  const remaining = Math.max(required - ferryDelay, 0);
+  state.currentTime = new Date(state.currentTime.getTime() + (ferryDelay + remaining) * 3600000);
+  state.dutyUsed = 0;
+  state.rests.push({
+    type: 'ferry',
+    start,
+    end: new Date(state.currentTime),
+    duration: ferryDelay + remaining
+  });
 }
 
 function scheduleDailyRest(state, pickDailyRest) {
@@ -85,15 +95,16 @@ function calculateTrip(params) {
     segmentIndex++;
     const segmentAvail = segmentIndex === 1 ? firstSegmentAvailableTime : defaultAvailableTime;
 
-    const { extraDelay, ferryAsRest } = getSegmentDelays(segmentIndex, refuelEvents, ferryEvent, mergedSettings);
+    const { extraDelay, ferryAsRest, ferryDelay } = getSegmentDelays(segmentIndex, refuelEvents, ferryEvent, mergedSettings);
 
     let plannedDrive = Math.min(segmentAvail, remainingDrive);
     let inShiftBreak = (state.isSingle && plannedDrive > 4.5) ? 0.75 : 0;
 
-    let countedDelay = extraDelay;
+    const nonFerryDelay = extraDelay - ferryDelay;
+    let countedDelay = nonFerryDelay;
     let offDutyDelay = 0;
 
-    if (mergedSettings.delayMode === 'auto' && !ferryAsRest) {
+    if (mergedSettings.delayMode === 'auto') {
       countedDelay = 0;
       const wouldBe = state.dutyUsed + plannedDrive + inShiftBreak;
       if (wouldBe > dutyCap) {
@@ -102,8 +113,8 @@ function calculateTrip(params) {
         inShiftBreak = (state.isSingle && plannedDrive > 4.5) ? 0.75 : 0;
       } else {
         const room = dutyCap - (state.dutyUsed + plannedDrive + inShiftBreak);
-        countedDelay = Math.min(extraDelay, room);
-        offDutyDelay = extraDelay - countedDelay;
+        countedDelay = Math.min(nonFerryDelay, room);
+        offDutyDelay = nonFerryDelay - countedDelay;
       }
     }
 
@@ -134,7 +145,7 @@ function calculateTrip(params) {
       });
 
       if (remainingDrive > 0 && ferryAsRest) {
-        applyFerryRest(state, pickDailyRest);
+        applyFerryRest(state, pickDailyRest, ferryDelay);
         continue;
       }
       if (remainingDrive > 0) {
@@ -163,7 +174,7 @@ function calculateTrip(params) {
     });
 
     if (remainingDrive > 0 && ferryAsRest) {
-      applyFerryRest(state, pickDailyRest);
+      applyFerryRest(state, pickDailyRest, ferryDelay);
       continue;
     }
     if (remainingDrive > 0) {
