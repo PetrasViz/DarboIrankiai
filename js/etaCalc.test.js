@@ -99,3 +99,33 @@ test('calculateTrip attaches delay notes to segments', () => {
   assert.ok(notes.includes('ferry 7.00h'));
 });
 
+test('calculateTrip allows overriding in-shift break per segment', () => {
+  const start = new Date('2023-01-01T00:00:00Z');
+  const result = calculateTrip({
+    baseTime: 10,
+    defaultAvailableTime: 9,
+    firstSegmentAvailableTime: 9,
+    driverType: 'single',
+    speed: 80,
+    startTime: start,
+    breakOverrides: { 1: 1.5 },
+    settings: {}
+  });
+  assert.strictEqual(result.segments[0].inShiftBreak, 1.5);
+});
+
+test('calculateTrip uses restOverrides for reduced breaks', () => {
+  const start = new Date('2023-01-01T00:00:00Z');
+  const result = calculateTrip({
+    baseTime: 12,
+    defaultAvailableTime: 9,
+    firstSegmentAvailableTime: 9,
+    driverType: 'single',
+    speed: 80,
+    startTime: start,
+    restOverrides: { 1: 9 },
+    settings: { delayMode: 'auto' }
+  });
+  assert.strictEqual(result.rests[0].duration, 9);
+});
+

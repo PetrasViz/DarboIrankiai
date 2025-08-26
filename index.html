@@ -140,6 +140,16 @@
         </div>
       </div>
 
+      <!-- Break override and reduced rest inputs -->
+      <div class="col-md-6">
+        <label for="breakOverrides" class="form-label" id="breakOverridesLabel">In-shift break overrides (segment:minutes):</label>
+        <input type="text" id="breakOverrides" class="form-control" placeholder="e.g., 2:60,3:45">
+      </div>
+      <div class="col-md-6">
+        <label for="reducedRests" class="form-label" id="reducedRestsLabel">Reduced daily rests (numbers):</label>
+        <input type="text" id="reducedRests" class="form-control" placeholder="e.g., 1,3">
+      </div>
+
       <!-- Ferry assignment container (shown only if ferry > 0) -->
       <div class="col-12" id="ferryAssignmentContainer" style="display:none;">
         <div class="card mt-2">
@@ -245,6 +255,10 @@
       "speed": "Average Speed (km/h):",
       "refuels": "Number of Refuelings (each 1h delay):",
       "ferryTime": "Total Ferry Time (minutes delay):",
+      "breakOverrides": "In-shift break overrides (segment:minutes):",
+      "breakOverridesPlaceholder": "e.g., 2:60,3:45",
+      "reducedRests": "Reduced daily rests (numbers):",
+      "reducedRestsPlaceholder": "e.g., 1,3",
       "calculateTrip": "Calculate Trip",
       "ferryDelayAssignment": "Ferry Delay Assignment",
       "applyFerryDelayInSegment": "Apply Ferry Delay in segment (number):",
@@ -268,6 +282,10 @@
       "speed": "Vidutinis greitis (km/h):",
       "refuels": "Degalų papildymų skaičius (kiekvienas – 1 val. vėlavimas):",
       "ferryTime": "Kelto laikas (vėlavimas min.):",
+      "breakOverrides": "Pertraukų keitimas (segmentas:min):",
+      "breakOverridesPlaceholder": "pvz., 2:60,3:45",
+      "reducedRests": "Sumažinti dienos poilsiai (numeriai):",
+      "reducedRestsPlaceholder": "pvz., 1,3",
       "calculateTrip": "Apskaičiuoti kelionę",
       "ferryDelayAssignment": "Kelto vėlavimo priskyrimas",
       "applyFerryDelayInSegment": "Priskirti kelto laiką segmentui (numeris):",
@@ -291,6 +309,10 @@
       "speed": "Средняя скорость (км/ч):",
       "refuels": "Количество заправок (каждая — задержка 1 ч):",
       "ferryTime": "Время парома (задержка, мин):",
+      "breakOverrides": "Изменения перерывов (сегмент:мин):",
+      "breakOverridesPlaceholder": "напр., 2:60,3:45",
+      "reducedRests": "Сокращённые ежедневные отдыхи (номера):",
+      "reducedRestsPlaceholder": "напр., 1,3",
       "calculateTrip": "Рассчитать поездку",
       "ferryDelayAssignment": "Назначение задержки парома",
       "applyFerryDelayInSegment": "Применить задержку парома к сегменту (номер):",
@@ -354,6 +376,10 @@
     document.getElementById("speedLabel").innerText = t["speed"];
     document.getElementById("refuelsLabel").innerText = t["refuels"];
     document.getElementById("ferryTimeLabel").innerText = t["ferryTime"];
+    document.getElementById("breakOverridesLabel").innerText = t["breakOverrides"];
+    document.getElementById("breakOverrides").placeholder = t["breakOverridesPlaceholder"];
+    document.getElementById("reducedRestsLabel").innerText = t["reducedRests"];
+    document.getElementById("reducedRests").placeholder = t["reducedRestsPlaceholder"];
     document.getElementById("calcTripButton").innerText = t["calculateTrip"];
     document.getElementById("ferryDelayAssignmentHeader").innerText = t["ferryDelayAssignment"];
     document.getElementById("ferrySegmentLabel").innerText = t["applyFerryDelayInSegment"];
@@ -431,6 +457,25 @@
     }
   }
 
+  function parseBreakOverrides(str) {
+    const result = {};
+    if (!str) return result;
+    str.split(',').forEach(part => {
+      const [seg, mins] = part.split(':').map(s => s.trim());
+      const sNum = parseInt(seg, 10);
+      const mNum = parseFloat(mins);
+      if (!isNaN(sNum) && !isNaN(mNum)) {
+        result[sNum] = mNum / 60;
+      }
+    });
+    return result;
+    }
+
+  function parseReducedRests(str) {
+    if (!str) return [];
+    return str.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+  }
+
   // ====== CORE CALC (v1.1) ======
   function calculateTripWithDelays(
     appState,
@@ -441,7 +486,9 @@
     speed,                       // km/h
     startTime,                   // Date
     refuelEvents,                // [{segment, delay:1.0}, ...]
-    ferryEvent                   // {segment, delay:hours}
+    ferryEvent,                  // {segment, delay:hours}
+    breakOverrides = {},
+    reducedRestIndices = []
   ) {
     const breakdown = [];
     const segments = [];
@@ -459,15 +506,26 @@
     // Warnings
     let warnings = [];
 
+    const reducedSet = new Set(reducedRestIndices);
+    let restCounter = 0;
     function pickDailyRest() {
-      if (isSingle && appState.settings.preferReducedRestFirst && appState.weeklyCounters.reducedRestsUsed < 2) {
-        appState.incrementReducedRest();
-        const reducedEl = document.getElementById('reducedCount');
-        if (reducedEl) reducedEl.innerText = appState.weeklyCounters.reducedRestsUsed;
-        if (appState.weeklyCounters.reducedRestsUsed > 2) {
-          warnings.push("More than two 9h reduced daily rests used this week.");
+      restCounter++;
+      if (isSingle) {
+        let useReduced = false;
+        if (reducedSet.has(restCounter)) {
+          useReduced = true;
+        } else if (appState.settings.preferReducedRestFirst && appState.weeklyCounters.reducedRestsUsed < 2) {
+          useReduced = true;
         }
-        return 9;
+        if (useReduced) {
+          appState.incrementReducedRest();
+          const reducedEl = document.getElementById('reducedCount');
+          if (reducedEl) reducedEl.innerText = appState.weeklyCounters.reducedRestsUsed;
+          if (appState.weeklyCounters.reducedRestsUsed > 2) {
+            warnings.push("More than two 9h reduced daily rests used this week.");
+          }
+          return 9;
+        }
       }
       return 11;
     }
@@ -507,8 +565,10 @@
       const { extraDelay, delayNotes, ferryAsRest } = getDelaysForSegment(segmentIndex);
 
       let plannedDrive = Math.min(segmentAvail, remainingDrive);
-      let inShiftBreak = 0;
-      if (isSingle && plannedDrive > 4.5) inShiftBreak = 0.75;
+      let inShiftBreak = (isSingle && plannedDrive > 4.5) ? 0.75 : 0;
+      if (breakOverrides[segmentIndex] !== undefined) {
+        inShiftBreak = breakOverrides[segmentIndex];
+      }
 
       // AUTO delay behavior
       let countedDelay = extraDelay;
@@ -686,6 +746,9 @@
     }
     let ferryEvent = { segment: ferrySegment, delay: ferryDelay };
 
+    const breakOverrides = parseBreakOverrides(document.getElementById('breakOverrides').value);
+    const reducedRestIndices = parseReducedRests(document.getElementById('reducedRests').value);
+
     // run calc
     let out = calculateTripWithDelays(
       APP_STATE,
@@ -696,7 +759,9 @@
       speed,
       startTime,
       refuelEvents,
-      ferryEvent
+      ferryEvent,
+      breakOverrides,
+      reducedRestIndices
     );
 
     let totalTripHours = (out.finalTime - startTime) / 3600000;
