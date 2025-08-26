@@ -67,7 +67,9 @@ function calculateTrip(params) {
     refuelEvents = [],
     ferryEvent = {},
     settings = {},
-    pickDailyRest = () => 11
+    pickDailyRest = () => 11,
+    breakOverrides = {},
+    restOverrides = {}
   } = params;
 
   const mergedSettings = {
@@ -90,6 +92,7 @@ function calculateTrip(params) {
 
   let remainingDrive = baseTime;
   let segmentIndex = 0;
+  let restCount = 0;
 
   while (remainingDrive > 0) {
     segmentIndex++;
@@ -99,6 +102,9 @@ function calculateTrip(params) {
 
     let plannedDrive = Math.min(segmentAvail, remainingDrive);
     let inShiftBreak = (state.isSingle && plannedDrive > 4.5) ? 0.75 : 0;
+    if (breakOverrides[segmentIndex] !== undefined) {
+      inShiftBreak = breakOverrides[segmentIndex];
+    }
 
     const nonFerryDelay = extraDelay - ferryDelay;
     let countedDelay = nonFerryDelay;
@@ -146,11 +152,15 @@ function calculateTrip(params) {
       });
 
       if (remainingDrive > 0 && ferryAsRest) {
-        applyFerryRest(state, pickDailyRest, ferryDelay);
+        restCount++;
+        const rLen = restOverrides[restCount] ?? pickDailyRest();
+        applyFerryRest(state, () => rLen, ferryDelay);
         continue;
       }
       if (remainingDrive > 0) {
-        scheduleDailyRest(state, pickDailyRest);
+        restCount++;
+        const rLen = restOverrides[restCount] ?? pickDailyRest();
+        scheduleDailyRest(state, () => rLen);
       }
       continue;
     }
@@ -176,11 +186,15 @@ function calculateTrip(params) {
     });
 
     if (remainingDrive > 0 && ferryAsRest) {
-      applyFerryRest(state, pickDailyRest, ferryDelay);
+      restCount++;
+      const rLen = restOverrides[restCount] ?? pickDailyRest();
+      applyFerryRest(state, () => rLen, ferryDelay);
       continue;
     }
     if (remainingDrive > 0) {
-      scheduleDailyRest(state, pickDailyRest);
+      restCount++;
+      const rLen = restOverrides[restCount] ?? pickDailyRest();
+      scheduleDailyRest(state, () => rLen);
     }
   }
 
